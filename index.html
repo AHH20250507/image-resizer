@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>批量图片缩放工具</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f5f7;
+    --card: #ffffff;
+    --text: #1d1d1f;
+    --text-2: #6e6e73;
+    --accent: #0071e3;
+    --accent-hover: #0077ed;
+    --border: #d2d2d7;
+    --radius-lg: 18px;
+    --radius-md: 12px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.08);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 32px; }
+  header h1 { font-size: 32px; font-weight: 600; letter-spacing: -0.02em; }
+  header p { color: var(--text-2); font-size: 15px; margin-top: 8px; }
+
+  .card {
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: 28px;
+    margin-bottom: 22px;
+  }
+
+  /* 上传区 */
+  .drop {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius-lg);
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s ease;
+    background: #fafafa;
+  }
+  .drop:hover, .drop.drag { border-color: var(--accent); background: #f0f7ff; }
+  .drop .icon { font-size: 40px; margin-bottom: 12px; }
+  .drop h3 { font-size: 17px; font-weight: 500; }
+  .drop p { color: var(--text-2); font-size: 13px; margin-top: 6px; }
+
+  /* 图片列表 */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 14px;
+    margin-top: 20px;
+  }
+  .item {
+    position: relative;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: #f0f0f2;
+    aspect-ratio: 1/1;
+    box-shadow: var(--shadow-sm);
+  }
+  .item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .item .meta {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,.65));
+    color: #fff; font-size: 11px; padding: 14px 8px 6px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .item .del {
+    position: absolute; top: 6px; right: 6px;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: rgba(0,0,0,.55); color: #fff; border: none;
+    cursor: pointer; font-size: 14px; line-height: 1; display: none;
+  }
+  .item:hover .del { display: block; }
+  .clear-all { margin-top: 16px; font-size: 13px; color: var(--text-2); cursor: pointer; background: none; border: none; }
+  .clear-all:hover { color: #e02424; }
+
+  /* 控件 */
+  .field { margin-bottom: 22px; }
+  .field:last-child { margin-bottom: 0; }
+  .field > label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip {
+    padding: 8px 16px; border-radius: 999px; border: 1px solid var(--border);
+    background: #fff; cursor: pointer; font-size: 13px; transition: all .15s;
+    color: var(--text);
+  }
+  .chip:hover { border-color: var(--accent); }
+  .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .size-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .input-group { display: flex; align-items: center; gap: 8px; }
+  .input-group input {
+    width: 96px; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: var(--radius-md); font-size: 14px; text-align: center;
+    font-family: inherit;
+  }
+  .input-group input:focus { outline: none; border-color: var(--accent); }
+  .input-group span { color: var(--text-2); font-size: 14px; }
+  .lock-btn {
+    padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: #fff; cursor: pointer; font-size: 13px; color: var(--text-2);
+  }
+  .lock-btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .seg { display: inline-flex; background: #f0f0f2; border-radius: var(--radius-md); padding: 3px; }
+  .seg button {
+    border: none; background: none; padding: 8px 16px; border-radius: 9px;
+    cursor: pointer; font-size: 13px; color: var(--text-2); font-family: inherit;
+  }
+  .seg button.active { background: #fff; color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
+
+  select {
+    padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-md);
+    font-size: 14px; font-family: inherit; background: #fff; cursor: pointer; color: var(--text);
+  }
+  .quality-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  .quality-val { font-size: 13px; color: var(--text-2); width: 42px; text-align: right; }
+  .hint { font-size: 12px; color: var(--text-2); margin-top: 8px; }
+
+  /* 底部操作 */
+  .actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .btn-primary {
+    background: var(--accent); color: #fff; border: none; border-radius: var(--radius-md);
+    padding: 13px 28px; font-size: 15px; font-weight: 500; cursor: pointer; font-family: inherit;
+    transition: background .15s; display: inline-flex; align-items: center; gap: 8px;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+  .count { color: var(--text-2); font-size: 14px; }
+
+  .progress-bar { height: 6px; background: #e8e8ed; border-radius: 999px; overflow: hidden; margin-top: 16px; display: none; }
+  .progress-bar > div { height: 100%; background: var(--accent); width: 0; transition: width .15s; }
+
+  footer { text-align: center; color: var(--text-2); font-size: 12px; margin-top: 28px; }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>批量图片缩放工具</h1>
+    <p>上传一批同比例图片，一键缩放为指定尺寸 · 全程本地处理，不上传服务器</p>
+  </header>
+
+  <!-- 上传 -->
+  <div class="card">
+    <div class="drop" id="drop">
+      <div class="icon">🖼️</div>
+      <h3>拖拽图片到此处，或点击选择</h3>
+      <p>支持多选 · JPG / PNG / WEBP 等常见格式</p>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" multiple hidden />
+    <div class="grid" id="grid"></div>
+    <button class="clear-all" id="clearAll" hidden>清空全部</button>
+  </div>
+
+  <!-- 设置 -->
+  <div class="card">
+    <div class="field">
+      <label>目标尺寸（像素）</label>
+      <div class="chips" id="presetChips">
+        <div class="chip" data-size="256">256</div>
+        <div class="chip" data-size="512">512</div>
+        <div class="chip active" data-size="1024">1024</div>
+        <div class="chip" data-size="2048">2048</div>
+        <div class="chip" data-size="custom">自定义</div>
+      </div>
+      <div class="size-row" style="margin-top:14px;">
+        <div class="input-group">
+          <span>宽</span><input type="number" id="wInput" value="1024" min="1" max="8000" />
+        </div>
+        <div class="input-group">
+          <span>高</span><input type="number" id="hInput" value="1024" min="1" max="8000" />
+        </div>
+        <button class="lock-btn on" id="lockBtn" title="锁定比例">🔒 锁定比例</button>
+      </div>
+      <p class="hint">你的图片都是同比例、目标也同比例（如都是 1:1），锁定后改一个值另一个自动跟随。注意：目标尺寸须 ≤ 原图尺寸才能清晰；把小图放大必然发虚（像素插值上限，任何工具都一样）。</p>
+    </div>
+
+    <div class="field">
+      <label>缩放模式</label>
+      <div class="seg" id="modeSeg">
+        <button class="active" data-mode="fit">等比缩放（留白）</button>
+        <button data-mode="cover">裁剪填充（满幅）</button>
+      </div>
+      <p class="hint">等比缩放：保持原图比例，不足处补白；裁剪填充：填满目标尺寸，超出部分裁掉。同比例图片两者效果一致。</p>
+    </div>
+
+    <div class="field">
+      <label>输出格式</label>
+      <select id="formatSel">
+        <option value="original">保持原格式</option>
+        <option value="image/jpeg">JPEG</option>
+        <option value="image/png">PNG</option>
+        <option value="image/webp">WEBP</option>
+      </select>
+      <div class="quality-row" id="qualityRow">
+        <span style="font-size:13px;color:var(--text-2);">质量</span>
+        <input type="range" id="quality" min="0.6" max="1" step="0.05" value="0.9" />
+        <span class="quality-val" id="qualityVal">0.90</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 执行 -->
+  <div class="card">
+    <div class="actions">
+      <span class="count" id="count">尚未添加图片</span>
+      <button class="btn-primary" id="processBtn" disabled>
+        <span>⚡</span><span id="processLabel">处理并下载 ZIP</span>
+      </button>
+    </div>
+    <div class="progress-bar" id="progress"><div></div></div>
+  </div>
+
+  <footer>
+    所有处理均在你的浏览器本地完成 · 使用 Canvas 缩放，JSZip 打包下载
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const files = []; // {id, file, url}
+  let uid = 0;
+
+  const drop = document.getElementById('drop');
+  const fileInput = document.getElementById('fileInput');
+  const grid = document.getElementById('grid');
+  const clearAll = document.getElementById('clearAll');
+  const wInput = document.getElementById('wInput');
+  const hInput = document.getElementById('hInput');
+  const lockBtn = document.getElementById('lockBtn');
+  const presetChips = document.getElementById('presetChips');
+  const modeSeg = document.getElementById('modeSeg');
+  const formatSel = document.getElementById('formatSel');
+  const qualityRow = document.getElementById('qualityRow');
+  const quality = document.getElementById('quality');
+  const qualityVal = document.getElementById('qualityVal');
+  const count = document.getElementById('count');
+  const processBtn = document.getElementById('processBtn');
+  const processLabel = document.getElementById('processLabel');
+  const progress = document.getElementById('progress');
+  const progressFill = progress.firstElementChild;
+
+  let targetW = 1024, targetH = 1024, locked = true, mode = 'fit';
+  let mimeOut = 'original';
+
+  /* ---------- 上传 ---------- */
+  drop.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', e => addFiles(e.target.files));
+
+  ['dragenter', 'dragover'].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag'); }));
+  ['dragleave', 'drop'].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); }));
+  drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+
+  function addFiles(list) {
+    Array.from(list).forEach(f => {
+      if (!f.type.startsWith('image/')) return;
+      const item = { id: ++uid, file: f, url: URL.createObjectURL(f) };
+      files.push(item);
+      renderItem(item);
+    });
+    fileInput.value = '';
+    updateCount();
+  }
+
+  function renderItem(item) {
+    const div = document.createElement('div');
+    div.className = 'item';
+    div.dataset.id = item.id;
+    div.innerHTML =
+      `<img src="${item.url}" alt="">
+       <button class="del" title="移除">✕</button>
+       <div class="meta">${escapeHtml(item.file.name)}</div>`;
+    div.querySelector('.del').addEventListener('click', e => {
+      e.stopPropagation();
+      removeItem(item.id);
+    });
+    grid.appendChild(div);
+    clearAll.hidden = false;
+  }
+
+  function removeItem(id) {
+    const idx = files.findIndex(f => f.id === id);
+    if (idx > -1) {
+      URL.revokeObjectURL(files[idx].url);
+      files.splice(idx, 1);
+    }
+    const el = grid.querySelector(`[data-id="${id}"]`);
+    if (el) el.remove();
+    if (!files.length) clearAll.hidden = true;
+    updateCount();
+  }
+
+  clearAll.addEventListener('click', () => {
+    files.forEach(f => URL.revokeObjectURL(f.url));
+    files.length = 0;
+    grid.innerHTML = '';
+    clearAll.hidden = true;
+    updateCount();
+  });
+
+  function updateCount() {
+    const n = files.length;
+    count.textContent = n ? `已添加 ${n} 张图片` : '尚未添加图片';
+    processBtn.disabled = n === 0;
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  /* ---------- 尺寸 ---------- */
+  presetChips.addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    document.querySelectorAll('#presetChips .chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    if (chip.dataset.size !== 'custom') {
+      const s = parseInt(chip.dataset.size, 10);
+      targetW = targetH = s;
+      wInput.value = s; hInput.value = s;
+      wInput.disabled = hInput.disabled = false;
+    } else {
+      wInput.focus();
+    }
+  });
+
+  function syncLock(src) {
+    const w = parseInt(wInput.value, 10) || 1;
+    const h = parseInt(hInput.value, 10) || 1;
+    if (locked && src === 'w') { targetH = h; targetW = w; hInput.value = w; }
+    else if (locked && src === 'h') { targetW = w; targetH = h; wInput.value = h; }
+    else { targetW = w; targetH = h; }
+  }
+  wInput.addEventListener('input', () => syncLock('w'));
+  hInput.addEventListener('input', () => syncLock('h'));
+
+  lockBtn.addEventListener('click', () => {
+    locked = !locked;
+    lockBtn.classList.toggle('on', locked);
+    lockBtn.textContent = locked ? '🔒 锁定比例' : '🔓 自由比例';
+    if (locked) syncLock('w');
+  });
+
+  /* ---------- 模式 / 格式 ---------- */
+  modeSeg.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    document.querySelectorAll('#modeSeg button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    mode = b.dataset.mode;
+  });
+
+  formatSel.addEventListener('change', () => {
+    mimeOut = formatSel.value;
+    const showQ = mimeOut === 'image/jpeg' || mimeOut === 'image/webp';
+    qualityRow.style.display = showQ ? 'flex' : 'none';
+  });
+
+  quality.addEventListener('input', () => {
+    qualityVal.textContent = parseFloat(quality.value).toFixed(2);
+  });
+
+  /* ---------- 处理 ---------- */
+  async function loadBitmap(file) {
+    // 优先使用 createImageBitmap 以正确处理 EXIF 方向
+    if (window.createImageBitmap) {
+      try {
+        return await createImageBitmap(file, { imageOrientation: 'from-image' });
+      } catch (_) { /* fallthrough */ }
+    }
+    return await new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => res(img);
+      img.onerror = rej;
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  function newCanvas(w, h) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const x = c.getContext('2d');
+    x.imageSmoothingEnabled = true;
+    x.imageSmoothingQuality = 'high';
+    return c;
+  }
+
+  // 逐级二分缩小：每次缩一半直到接近目标，最后一次精修到目标尺寸。
+  // 避免浏览器单次双线性缩小在大倍数下丢失细节、整体发虚。
+  function drawResized(bmp, tw, th, mode) {
+    tw = Math.round(tw); th = Math.round(th);
+
+    // 1) 取出需要采样的源区域（cover 模式下先居中裁切到目标比例）
+    let sw = bmp.width, sh = bmp.height, sx = 0, sy = 0;
+    if (mode === 'cover') {
+      const s = Math.max(tw / sw, th / sh);
+      const cw = tw / s, ch = th / s;
+      sx = (sw - cw) / 2; sy = (sh - ch) / 2;
+      sw = cw; sh = ch;
+    }
+
+    // 2) 先以源区域原始分辨率画到一张工作画布
+    let cur = newCanvas(Math.max(1, Math.round(sw)), Math.max(1, Math.round(sh)));
+    cur.getContext('2d').drawImage(bmp, sx, sy, sw, sh, 0, 0, cur.width, cur.height);
+
+    // 3) 逐级二分缩小
+    while (cur.width * 0.5 >= tw * 0.75 && cur.height * 0.5 >= th * 0.75) {
+      const nw = Math.max(1, Math.round(cur.width * 0.5));
+      const nh = Math.max(1, Math.round(cur.height * 0.5));
+      const next = newCanvas(nw, nh);
+      next.getContext('2d').drawImage(cur, 0, 0, nw, nh);
+      cur = next;
+    }
+
+    // 4) 最后精修到目标尺寸
+    const out = newCanvas(tw, th);
+    const octx = out.getContext('2d');
+    if (mode === 'fit') {
+      // 白底（JPEG 无透明通道；fit 模式可能留白边）
+      octx.fillStyle = '#ffffff';
+      octx.fillRect(0, 0, tw, th);
+    }
+    octx.drawImage(cur, 0, 0, tw, th);
+    return out;
+  }
+
+  function outMime(file) {
+    if (mimeOut !== 'original') return mimeOut;
+    const t = file.type;
+    return (t === 'image/jpeg' || t === 'image/png' || t === 'image/webp') ? t : 'image/png';
+  }
+
+  function outExt(mime) {
+    return { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[mime] || 'png';
+  }
+
+  function canvasToBlob(canvas, mime, q) {
+    return new Promise(res => canvas.toBlob(b => res(b), mime, q));
+  }
+
+  async function process() {
+    if (!files.length) return;
+    const tw = parseInt(wInput.value, 10) || targetW;
+    const th = parseInt(hInput.value, 10) || targetH;
+    if (tw < 1 || th < 1) { alert('请输入有效的目标尺寸'); return; }
+
+    const q = parseFloat(quality.value);
+    processBtn.disabled = true;
+    processLabel.textContent = '处理中…';
+    progress.style.display = 'block';
+    progressFill.style.width = '0%';
+
+    const results = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const bmp = await loadBitmap(f.file);
+      const canvas = drawResized(bmp, tw, th, mode);
+      const mime = outMime(f.file);
+      const blob = await canvasToBlob(canvas, mime, q);
+      const ext = outExt(mime);
+      const base = f.file.name.replace(/\.[^.]+$/, '');
+      results.push({ name: `${base}_${tw}x${th}.${ext}`, blob });
+      if (bmp.close) bmp.close();
+      progressFill.style.width = Math.round(((i + 1) / files.length) * 100) + '%';
+    }
+
+    // 单张图片：直接下载该图片，无需压缩包
+    if (results.length === 1) {
+      triggerDownload(results[0].blob, results[0].name);
+    } else {
+      try {
+        if (window.JSZip) {
+          const zip = new JSZip();
+          const folder = zip.folder(`resized_${tw}x${th}`);
+          results.forEach(r => folder.file(r.name, r.blob));
+          const content = await zip.generateAsync({ type: 'blob' });
+          triggerDownload(content, `resized_${tw}x${th}.zip`);
+        } else {
+          // 离线降级：逐张下载
+          results.forEach(r => triggerDownload(r.blob, r.name));
+        }
+      } catch (err) {
+        alert('打包失败，尝试逐张下载：' + err.message);
+        results.forEach(r => triggerDownload(r.blob, r.name));
+      }
+    }
+
+    processBtn.disabled = false;
+    processLabel.textContent = '处理并下载 ZIP';
+    setTimeout(() => { progress.style.display = 'none'; }, 800);
+  }
+
+  function triggerDownload(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  processBtn.addEventListener('click', process);
+
+})();
+</script>
+</body>
+</html>
